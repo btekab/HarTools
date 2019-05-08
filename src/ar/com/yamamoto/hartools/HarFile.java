@@ -4,6 +4,7 @@ import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
 import org.apache.wink.json4j.*;
 import java.io.*;
 import java.nio.charset.UnsupportedCharsetException;
+import java.text.DecimalFormat;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -13,7 +14,7 @@ public class HarFile extends TextFile {
 	final private Character CSV_DEFAULT_DELIMITER = '\t';
 	final private String timingNames[] = { "wait", "receive", "blocked", "send", "dns", "connect", "ssl" };
 	final private Map<String, DescriptiveStatistics> statistics = new HashMap<String, DescriptiveStatistics>();
-	final private DescriptiveStatistics totalStatistics = new DescriptiveStatistics();
+	final DecimalFormat decimalFormat = new DecimalFormat("#.##");
 
 	public HarFile(String filename, String charset)
 			throws FileNotFoundException, IOException, JSONException, UnsupportedCharsetException {
@@ -82,34 +83,13 @@ public class HarFile extends TextFile {
 			}
 		}
 
-		System.out.println("Statistics -> Total Timing : #" +  totalStatistics.getN() +
-				"\n Min   = " + totalStatistics.getMin() +
-				"\n Mean   = " + totalStatistics.getMean() +
-				"\n STD    = " + totalStatistics.getStandardDeviation() +
-				"\n Median = " + totalStatistics.getPercentile(50) +
-				"\n 90%    = " + totalStatistics.getPercentile(90) +
-				"\n 99%    = " + totalStatistics.getPercentile(99)  +
-				"\n Max   = " + totalStatistics.getMax()
-		);
-
-
+		printStatistics("time", 1);
 
 		for (String timingName : timingNames) {
-
-			DescriptiveStatistics descriptiveStatistics = statistics.get(timingName);
-
-
-			System.out.println("Statistics -> " + timingName + " for : #" +  descriptiveStatistics.getN() +
-					"\n Min   = " + descriptiveStatistics.getMin() +
-					"\n Mean   = " + descriptiveStatistics.getMean() +
-					"\n STD    = " + descriptiveStatistics.getStandardDeviation() +
-					"\n Median = " + descriptiveStatistics.getPercentile(50) +
-					"\n 90%    = " + descriptiveStatistics.getPercentile(90) +
-					"\n 99%    = " + descriptiveStatistics.getPercentile(99)  +
-					"\n Max   = " + descriptiveStatistics.getMax()
-			);
+			printStatistics(timingName, 1);
 		}
 
+		printStatistics("size", 1000);
 
 		return csvBuffer.toString();
 	}
@@ -135,40 +115,20 @@ public class HarFile extends TextFile {
 		csvLineBuffer.append(processKey(requestObject, "url") + csvDelimiter);
 		csvLineBuffer.append(processKey(requestObject, "method") + csvDelimiter);
 		csvLineBuffer.append(processKey(jsonObject, "startedDateTime") + csvDelimiter);
+		csvLineBuffer.append(processKeyWithStats(jsonObject, "time")+ csvDelimiter);
 
 		csvLineBuffer.append(processKey(responseObject, "status") + csvDelimiter);
 		csvLineBuffer.append(processKey(contentObject, "mimeType") + csvDelimiter);
-		csvLineBuffer.append(processKey(contentObject, "size") + csvDelimiter);
+		csvLineBuffer.append(processKeyWithStats(contentObject, "size") + csvDelimiter);
 		csvLineBuffer.append(processKey(responseObject, "headersSize") + csvDelimiter);
 		csvLineBuffer.append(processKey(responseObject, "bodySize") + csvDelimiter);
 		csvLineBuffer.append(processKey(
 				requestObject.getJSONArray("headers"), "Referer") + csvDelimiter);
 
 
-		//save stats for total time
-		String timeValue = processKey(jsonObject, "time");
-		if(null != timeValue && !timeValue.isEmpty()) {
-			totalStatistics.addValue(Double.valueOf(timeValue));
-		}
-		csvLineBuffer.append(timeValue + csvDelimiter);
-
 		// Timing keys
 		for(int i = 0; i < timingNames.length; i++) {
-			String value = processKey(timingsObject, timingNames[i]);
-
-			csvLineBuffer.append(value);
-
-			DescriptiveStatistics descriptiveStatistics = statistics.get(timingNames[i]);
-
-			if(descriptiveStatistics ==null) {
-				descriptiveStatistics = new DescriptiveStatistics();
-				statistics.put(timingNames[i], descriptiveStatistics);
-			}
-
-			if(null != value && !value.isEmpty()) {
-				descriptiveStatistics.addValue(Double.valueOf(value));
-			}
-
+			csvLineBuffer.append(processKeyWithStats(timingsObject, timingNames[i]));
 
 			if(i + 1 < timingNames.length) {
 				csvLineBuffer.append(csvDelimiter);
@@ -193,26 +153,46 @@ public class HarFile extends TextFile {
 	private String processKey(JSONObject object, String key)
 			throws JSONException {
 		String returnValue = new String();
-		
-		if(object.has(key)) {
-			if(!object.isNull(key)) {
+
+		if (object.has(key)) {
+			if (!object.isNull(key)) {
 				Object value = object.get(key);
-				if(String.class.isInstance(value)) {
-					if(value != null) {
-						returnValue = (String)value;
+				if (String.class.isInstance(value)) {
+					if (value != null) {
+						returnValue = (String) value;
 					}
-				} else if(Integer.class.isInstance(value)) {
-					if((Integer)value >= 0) {
+				} else if (Integer.class.isInstance(value)) {
+					if ((Integer) value >= 0) {
 						returnValue = String.valueOf(value);
 					}
-				} else if(Double.class.isInstance(value)) {
-					if((Double)value >= 0) {
+				} else if (Double.class.isInstance(value)) {
+					if ((Double) value >= 0) {
 						returnValue = String.valueOf(value);
 					}
 				}
 			}
 		}
-		
+
+		return returnValue;
+	}
+
+	private String processKeyWithStats(JSONObject object, String key)
+			throws JSONException {
+
+		String returnValue = processKey(object, key);
+
+		//save stats for the key
+		DescriptiveStatistics descriptiveStatistics = statistics.get(key);
+
+		if(descriptiveStatistics ==null) {
+			descriptiveStatistics = new DescriptiveStatistics();
+			statistics.put(key, descriptiveStatistics);
+		}
+
+		if(null != returnValue && !returnValue.isEmpty()) {
+			descriptiveStatistics.addValue(Double.valueOf(returnValue));
+		}
+
 		return returnValue;
 	}
 	
@@ -249,5 +229,25 @@ public class HarFile extends TextFile {
 	public void setDelimiter(Character delimiter) {
 		if(delimiter != null)
 			csvDelimiter = delimiter;
+	}
+
+	private void printStatistics(final String key, double scale) {
+		DescriptiveStatistics descriptiveStatistics = statistics.get(key);
+
+		if(null != descriptiveStatistics) {
+
+			System.out.println("Statistics -> " + key + " : #" + descriptiveStatistics.getN() +
+					"\n Min   = " + decimalFormat.format(descriptiveStatistics.getMin()/scale) +
+					"\n Mean   = " + decimalFormat.format(descriptiveStatistics.getMean()/scale) +
+					"\n STD    = " + decimalFormat.format(descriptiveStatistics.getStandardDeviation()/scale) +
+					"\n Median = " + decimalFormat.format(descriptiveStatistics.getPercentile(50)/scale) +
+					"\n 90%    = " + decimalFormat.format(descriptiveStatistics.getPercentile(90)/scale) +
+					"\n 99%    = " + decimalFormat.format(descriptiveStatistics.getPercentile(99)/scale) +
+					"\n Max   = " + decimalFormat.format(descriptiveStatistics.getMax()/scale)
+			);
+		} else {
+			System.out.println("Statistics -> " + key + " : # NOT Found");
+		}
+
 	}
 }

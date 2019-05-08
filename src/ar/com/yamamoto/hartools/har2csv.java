@@ -34,7 +34,7 @@ public class har2csv {
 				+ "                              (if omitted, outputs to stdout)\n"
 				+ "    -v, --version             Version number\n");
 		} else if(cliArgs.hasArg("version")) {
-			System.out.println("har2csv $build:20190503_1646$\n"
+			System.out.println("har2csv $build:20190507_0724$\n"
 				+ "HTTP Archive(har) to CSV converter\n"
 				+ "http://www.yamamoto.com.ar/hartools\n");
 		} else if(cliArgs.hasArg("in") && String.class.isInstance(cliArgs.getValue("in"))) {
